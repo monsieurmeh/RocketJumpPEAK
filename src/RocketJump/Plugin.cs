@@ -1,23 +1,31 @@
 ﻿using BepInEx;
+using HarmonyLib;
+using PEAKLib.Core;
+using PEAKLib.Items;
+using System.Collections.Generic;
+using PEAKLib.Items.UnityEditor;
+using UnityEngine;
+
 
 namespace RocketJump
 {
-
     [BepInAutoPlugin]
+    [BepInDependency(ItemsPlugin.Id)]
+    [BepInDependency(CorePlugin.Id)]
     public partial class Plugin : BaseUnityPlugin
     {
-        AssetManager assetManager = null!;
 
         private void Awake()
         {
-            AssetManager assetManager = new AssetManager(Logger);
-            if (!assetManager.Initialize())
-            {
-                Logger.LogError("AssetManager init failure!");
-                return;
-            }
-
+            this.LoadBundleWithName("rocketjump", BuildPrefab);
             Logger.LogInfo($"RocketJump, locked and loaded...");
+        }
+
+
+        private void BuildPrefab(PeakBundle bundle)
+        {
+            bundle.Mod.RegisterContent();
+            bundle.LoadAsset<UnityItemContent>("PeakRocketLauncher");
         }
     }
 }

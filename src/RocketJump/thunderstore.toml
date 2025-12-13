@@ -6,9 +6,9 @@ repository = "https://thunderstore.io"
 
 [package]
 namespace = "MonsieurMeh"
-name = "PistolMod"
-description = "Adds a pistol."
-websiteUrl = "http://github.com/monsieurmeh/PistolModPEAK"
+name = "RocketJump"
+description = "Adds a rocket launcher."
+websiteUrl = "http://github.com/monsieurmeh/RocketJump"
 containsNsfwContent = false
 
 [package.dependencies]
@@ -20,7 +20,7 @@ readme = "../../README.md"
 outdir = "../../artifacts/thunderstore/"
 
 [[build.copy]]
-source = "../../artifacts/bin/PistolMod/release/com.github.monsieurmeh.PistolMod.dll"
+source = "../../artifacts/bin/RocketJump/release/com.github.monsieurmeh.RocketJump.dll"
 target = "plugins/"
 
 [[build.copy]]

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
@@ -8,11 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="assets" />
+    <PackageReference Update="Hamunii.BepInEx.AutoPlugin" Version="2.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PEAKModding.PEAKLib.Core" Version="1.6.0" />
+    <PackageReference Include="PEAKModding.PEAKLib.Items" Version="*" />
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="COPY &quot;$(TargetPath)&quot; &quot;C:\Program Files (x86)\Steam\steamapps\common\PEAK\\BepInEx\plugins&quot;" />
+    <Exec Command="COPY &quot;$(TargetPath)&quot; &quot;C:\Program Files (x86)\Steam\steamapps\common\PEAK\BepInEx\plugins&quot;" />
+    <Exec Command="COPY &quot;$(TargetPath)&quot; &quot;C:\prog\peak\TheGame\ExportedProject\Assets\RocketJump&quot;" />
   </Target>
 
 </Project>
