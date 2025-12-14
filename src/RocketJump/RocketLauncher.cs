@@ -2,11 +2,16 @@
 using pworld.Scripts.Extensions;
 using System;
 using UnityEngine;
+using System.Collections;
+using UnityEngine.Rendering.VirtualTexturing;
+using System.Linq.Expressions;
+using BepInEx.Logging;
 
 namespace RocketJump
 {
     public class RocketLauncher : ItemComponent
     {
+        private static readonly ManualLogSource logger = BepInEx.Logging.Logger.CreateLogSource("RocketLauncher");
         public ParticleSystem gunshotVFX;
 
         public ParticleSystem fumesVFX;
@@ -19,23 +24,31 @@ namespace RocketJump
 
         public float screenshakeIntensity = 30f;
 
-        public int startAmmo = 1;
+        public int startAmmo = 3;
 
         public SFX_Instance[] shotSound;
 
         public SFX_Instance[] emptySound;
         public float maxDist = 250f;
         public float projectileSpeed = 100f;
+        public float blastForce = 100;
+
+        private bool initialized = false;
+        private bool initializing = false;
+        private float baseDrag;
+
+        public bool Initialized => initialized;
+
 
         private int Ammo
         {
             get
             {
-                return GetData(DataEntryKey.PetterItemUses, GetNew).Value;
+                return GetData(DataEntryKey.ItemUses | DataEntryKey.InstanceID, GetNew).Value;
             }
             set
             {
-                GetData(DataEntryKey.PetterItemUses, GetNew).Value = value;
+                GetData(DataEntryKey.ItemUses | DataEntryKey.InstanceID, GetNew).Value = value;
                 item.SetUseRemainingPercentage((float)value / (float)startAmmo);
             }
         }
@@ -43,44 +56,62 @@ namespace RocketJump
         public bool HasAmmo => Ammo >= 1;
 
         private IntItemData GetNew() => new IntItemData { Value = startAmmo };
-        
 
-        public override void Awake()
+        public override void OnInstanceDataSet() => StartCoroutine(InitCoroutine());
+
+        public void Start() => OnInstanceDataSet();
+
+
+        internal void MaybeFire()
         {
-            base.Awake();
-            Item obj = item;
-            obj.OnPrimaryFinishedCast = (Action)Delegate.Combine(obj.OnPrimaryFinishedCast, new Action(OnPrimaryFinishedCast));
-        }
-
-        private void OnDestroy()
-        {
-            Item obj = item;
-            obj.OnPrimaryFinishedCast = (Action)Delegate.Remove(obj.OnPrimaryFinishedCast, new Action(OnPrimaryFinishedCast));
-        }
-
-
-        private void OnPrimaryFinishedCast()
-        {
-            if (!CanFire()) return;
-            gunshotVFX.Play();
-            for (int j = 0; j < shotSound.Length; j++)
+            try
             {
-                shotSound[j].Play(base.transform.position);
-            }
-            GamefeelHandler.instance.AddPerlinShakeProximity(gunshotVFX.transform.position, screenshakeIntensity, 0.3f);
-            hideOnFire.SetActive(HasAmmo);
-            Ammo--;
-            photonView.RPC("Sync_Rpc", RpcTarget.AllBuffered, HasAmmo);
+                logger.LogInfo("Maybe firing");
+                if (!CanFire()) return;
+                logger.LogInfo("Firing");
+                if (gunshotVFX != null) gunshotVFX.Play();
+                for (int j = 0; j < shotSound.Length; j++)
+                {
+                    if (shotSound[j] != null) shotSound[j].Play(base.transform.position);
+                }
+                hideOnFire.SetActive(HasAmmo);
+                Ammo--;
+                photonView.RPC("Sync_Rpc", RpcTarget.AllBuffered, HasAmmo);
 
-            Vector3 impactPoint = GetImpactPoint();
-            GameObject rocket = PhotonNetwork.Instantiate(rocketPrefab.name, spawnPoint.position, spawnPoint.rotation, 0);
-            float flightTime = Vector3.Distance(spawnPoint.position, impactPoint) / projectileSpeed;
-            //rocket.GetComponent<RocketProjectile>().photonView.RPC("OnFired", RpcTarget.AllBuffered, impactPoint, flightTime);
-            // handle player bounce back
+
+                GamefeelHandler.instance.AddPerlinShakeProximity(transform.position, screenshakeIntensity, 0.3f);
+                Vector3 impactPoint = GetImpactPoint();
+                Vector3 origin = transform.position;
+                Vector3 inverseImpactVector = origin - impactPoint;
+                //GameObject rocket = PhotonNetwork.Instantiate(rocketPrefab.name, spawnPoint.position, spawnPoint.rotation, 0);  
+                //float flightTime = Vector3.Distance(spawnPoint.position, impactPoint) / projectileSpeed;
+                Character.localCharacter.refs.movement.drag = 0.99f;
+                Character.localCharacter.AddForce(inverseImpactVector * blastForce);
+                Character.localCharacter.data.isGrounded = false;
+                Character.localCharacter.data.isJumping = true;
+                Character.localCharacter.data.sinceJump = 0f;
+                Character.localCharacter.StartCoroutine(AdjustDrag());
+                //rocket.GetComponent<RocketProjectile>().photonView.RPC("OnFired", RpcTarget.AllBuffered, impactPoint, flightTime);
+            } catch (Exception e)
+            {
+                logger.LogError(e);
+            }
         }
 
-        private bool CanFire()
+        private IEnumerator AdjustDrag()
         {
+            yield return null;
+            Character yoinked = Character.localCharacter;
+            while (!yoinked.data.isGrounded)
+            {
+                yield return null;
+            }
+            yoinked.refs.movement.drag = baseDrag;
+        }
+
+        internal bool CanFire()
+        {
+            if (initializing || !initialized) return false;
             if (!HasAmmo)
             {
                 fumesVFX.Play();
@@ -96,7 +127,7 @@ namespace RocketJump
         private Vector3 GetImpactPoint()
         {
             Ray camRay = Camera.main.ForwardRay();
-            if (!camRay.Raycast(out RaycastHit terrainHit, HelperFunctions.LayerType.TerrainMap.ToLayerMask() | HelperFunctions.LayerType.CharacterAndDefault.ToLayerMask(), 0f))
+            if (!camRay.Raycast(out RaycastHit terrainHit, HelperFunctions.LayerType.TerrainMap.ToLayerMask(), 0f))
             {
                 return Camera.main.transform.position + (camRay.direction.normalized * maxDist);
             }
@@ -113,10 +144,42 @@ namespace RocketJump
             hideOnFire.SetActive(show);
         }
 
-        public override void OnInstanceDataSet()
+
+
+        private IEnumerator InitCoroutine()
         {
+            logger.LogInfo("Starting wait for valid character");
+            while (!Character.localCharacter)
+            {
+                yield return null;
+            }
+
+            if (initializing || initialized) yield break;
+            initializing = true;
+            logger.LogInfo("Initializing");
+            for (int i = 0, iMax = transform.childCount; i < iMax; i++)
+            {
+                GameObject childObject = transform.GetChild(i).gameObject;
+                switch (childObject.name)
+                {
+                    case "HideOnFire": hideOnFire = gameObject; break;
+                    case "Launcher":
+                        foreach (ParticleSystem particleSystem in childObject.GetComponentsInChildren<ParticleSystem>())
+                        {
+                            if (particleSystem.name == "VFX_Fumes") fumesVFX = particleSystem;
+                            if (particleSystem.name == "VFX_Gunshot") gunshotVFX = particleSystem;
+                        }
+                        break;
+                }
+            }
+
+            baseDrag = Character.localCharacter.refs.movement.drag;
             hideOnFire.SetActive(HasAmmo);
             item.SetUseRemainingPercentage((float)Ammo / (float)startAmmo);
+            logger.LogInfo("Initialized");
+
+            initializing = false;
+            initialized = true;
         }
     }
 }
